@@ -1,5 +1,7 @@
 # Swara OCR
 
+Repository: `Swara_OCR_t1`
+
 A small local web app that extracts English or Sinhala text from an image and reads it aloud. Tesseract performs OCR on the computer running the app. Speech generation uses the selected online provider (Microsoft Edge TTS or Google TTS), so the extracted text is sent to that provider.
 
 ## Requirements
