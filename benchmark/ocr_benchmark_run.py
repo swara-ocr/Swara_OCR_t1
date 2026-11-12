@@ -9,8 +9,8 @@ Test set layout (one folder):
 The filename prefix (si_ / ta_ / en_) picks the Tesseract language and groups the results.
 
 Usage:
-    python ocr_benchmark.py testset/
-    python ocr_benchmark.py testset/ --providers tesseract,gemini
+    python benchmark/ocr_benchmark_run.py benchmark/testset
+    python benchmark/ocr_benchmark_run.py benchmark/testset --providers tesseract,gemini
 Env: GEMINI_API_KEY, GEMINI_MODEL, ANTHROPIC_API_KEY, CLAUDE_MODEL
 Metric: character error rate (lower is better). Text is NFC-normalised, whitespace-collapsed and
 zero-width joiners are dropped, because Sinhala conjuncts use ZWJ and models disagree about it.
@@ -106,7 +106,7 @@ def run_claude(path, code):
     return "".join(b.get("text", "") for b in r.json()["content"] if b.get("type") == "text")
 
 
-BEST_DIR = Path(__file__).resolve().parent / "tessdata_best"
+BEST_DIR = Path(__file__).resolve().parents[1] / "tessdata_best"
 CLOUD = {"gemini", "claude"}
 
 
@@ -167,6 +167,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("folder")
     ap.add_argument("--providers", default="tesseract,gemini,claude")
+    ap.add_argument("--out", default=None, help="results CSV path (default: <folder>/results.csv)")
     args = ap.parse_args()
     names = [p.strip() for p in args.providers.split(",") if p.strip()]
 
@@ -195,7 +196,7 @@ def main():
                              seconds=round(dt, 2), hyp=hyp))
             print(f"{img.name:35} {name:10} CER {err:6.3f}  {dt:5.1f}s")
 
-    out = Path(args.folder) / "results.csv"
+    out = Path(args.out) if args.out else Path(args.folder) / "results.csv"
     with open(out, "w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=["file", "lang", "provider", "cer", "seconds", "hyp"])
         w.writeheader()

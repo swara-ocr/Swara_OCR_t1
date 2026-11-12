@@ -12,7 +12,7 @@ from gtts import gTTS
 from PIL import Image, ImageOps
 
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parents[1]
 TESSDATA_DIR = ROOT / "tessdata_best"
 LANGUAGES = {
     "English": {
