@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>TableTop Reader</title>
+    <meta name="description" content="Point your camera at a printed page. It guides you, takes the photo, reads the text and speaks it. English and Sinhala." />
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to content</a>
+    <header>
+      <h1>TableTop Reader</h1>
+      <p class="privacy">Your photo and text stay on this device. Nothing is uploaded and there is no tracking.<span id="privacy-online" hidden> Exception: if you press the online Sinhala voice button, that text is sent to an online speech service.</span></p>
+    </header>
+
+    <main id="main">
+      <p id="status" role="status" aria-live="polite" class="sr-or-visible"></p>
+
+      <!-- 1. start -->
+      <section id="screen-start" aria-labelledby="start-h">
+        <h2 id="start-h">Read a printed page</h2>
+        <p>Hold your phone, or point your laptop camera, at the page. You will hear short instructions. The photo is taken automatically when the page is clear.</p>
+        <button id="btn-start" class="big primary" type="button">Start camera</button>
+        <fieldset class="options">
+          <legend>Options</legend>
+          <label>Text language
+            <select id="sel-ocr">
+              <option value="auto">Auto (English and Sinhala)</option>
+              <option value="eng">English</option>
+              <option value="sin">Sinhala</option>
+            </select>
+          </label>
+          <label><input type="checkbox" id="chk-speak" checked /> Speak instructions</label>
+          <label><input type="checkbox" id="chk-beep" checked /> Beep that speeds up as framing improves</label>
+          <label>Test condition (for the test log)
+            <select id="sel-cond">
+              <option value="bright">Bright light</option>
+              <option value="dim">Dim light</option>
+              <option value="tilted">Tilted page</option>
+              <option value="glare">Glare</option>
+              <option value="other">Other</option>
+            </select>
+          </label>
+        </fieldset>
+      </section>
+
+      <!-- 2. camera -->
+      <section id="screen-camera" hidden aria-labelledby="cam-h">
+        <h2 id="cam-h" class="visually-hidden">Camera</h2>
+        <div id="hint-row">
+          <span id="status-badge" class="badge red">Adjust</span>
+          <p id="hint" aria-live="off">Starting camera.</p>
+        </div>
+        <div id="frame" class="frame red">
+          <video id="video" playsinline muted autoplay></video>
+          <canvas id="overlay" aria-hidden="true"></canvas>
+        </div>
+        <pre id="debug" hidden></pre>
+        <div class="row">
+          <button id="btn-capture" class="big primary" type="button">Take photo (space)</button>
+          <button id="btn-stop" class="big" type="button">Stop</button>
+        </div>
+        <label class="inline">Camera
+          <select id="sel-camera" aria-label="Camera"></select>
+        </label>
+      </section>
+
+      <!-- 3. result -->
+      <section id="screen-result" hidden aria-labelledby="res-h">
+        <h2 id="res-h">Text from the page</h2>
+        <img id="photo" alt="The photo that was taken" />
+        <p id="ocr-info"></p>
+        <label for="text" class="visually-hidden">Extracted text</label>
+        <textarea id="text" rows="12" lang="und"></textarea>
+        <div class="row">
+          <button id="btn-copy" class="big" type="button">Copy</button>
+          <button id="btn-original" class="big" type="button">Restore original text</button>
+        </div>
+
+        <h3>Listen</h3>
+        <p id="voice-note" role="status"></p>
+        <div class="row">
+          <button id="btn-read" class="big primary" type="button">Read aloud</button>
+          <button id="btn-online" class="big" type="button" hidden>Play with online Sinhala voice (unofficial)</button>
+          <button id="btn-read-stop" class="big" type="button">Stop reading</button>
+        </div>
+        <label>Voice <select id="sel-voice"></select></label>
+        <label>Speed <input id="rng-rate" type="range" min="0.5" max="2" step="0.1" value="1" /> <output id="out-rate">1.0</output></label>
+
+        <h3>Test log</h3>
+        <p>How was this attempt?</p>
+        <div class="row">
+          <button id="btn-good" class="big" type="button" aria-pressed="false">Good first try</button>
+          <button id="btn-help" class="big" type="button" aria-pressed="false">Needed help</button>
+        </div>
+        <div class="row">
+          <button id="btn-again" class="big primary" type="button">Read another page</button>
+          <button id="btn-csv" class="big" type="button">Download log (CSV)</button>
+        </div>
+        <p id="log-count"></p>
+      </section>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
