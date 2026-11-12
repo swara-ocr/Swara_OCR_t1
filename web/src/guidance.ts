@@ -1,91 +1,103 @@
 import type { Config } from "./config";
 import type { Metrics } from "./checks";
 
-export type CheckId = "page" | "light" | "framing" | "tilt" | "sharp" | "still";
+export type CheckId = "text" | "light" | "framing" | "tilt" | "sharp" | "still";
 export type Status = "red" | "amber" | "green";
 export type Mode = "phone" | "webcam";
 
 export interface Evaluation {
   passed: Record<CheckId, boolean>;
   failing: CheckId[];
-  hint: string;
+  key: string; // identifies the state; a phrase is spoken only when this changes
+  hint: string; // spoken phrase, under five words
   status: Status;
-  score: number; // 0..1, share of checks passed (drives the beep speed)
+  score: number; // 0..1, share of checks passed (drives the tone pitch)
 }
 
-const ORDER: CheckId[] = ["page", "light", "framing", "tilt", "sharp", "still"];
+const ORDER: CheckId[] = ["text", "light", "framing", "tilt", "sharp", "still"];
 
-export const HINTS = {
-  noPage: "I cannot see the page. Hold it in front of the camera.",
-  dark: "Too dark. Move to a brighter place.",
-  bright: "Too bright. Reduce the light on the page.",
-  glare: "Reduce glare. Tilt the page a little.",
-  straighten: "Straighten the page.",
-  blurry: "Too blurry. Hold still.",
-  still: "Hold still.",
-  ok: "Good. Hold still.",
+/** Every phrase is under five words so it can be heard quickly. */
+export const PHRASES = {
+  noText: "Find the page",
+  dark: "Too dark",
+  bright: "Too bright",
+  glare: "Reduce glare",
+  straighten: "Straighten the page",
+  steady: "Hold steady",
+  ready: "Ready",
 };
 
-function frameHint(m: Metrics, cfg: Config, mode: Mode): string {
-  const p = m.page;
-  const who = mode === "phone" ? "the phone" : "the page";
-  const t = p.touches;
-  const mirror = mode === "webcam" ? -1 : 1; // webcam preview is mirrored
-  // dx > 0: page sits right of centre in the image the user sees
-  const dx = p.centreDx * mirror;
-  const sideWord = (rightOfCentre: boolean) =>
-    mode === "phone" ? (rightOfCentre ? "right" : "left") : rightOfCentre ? "left" : "right";
-  const vertWord = (belowCentre: boolean) =>
-    mode === "phone" ? (belowCentre ? "down" : "up") : belowCentre ? "up" : "down";
+function moveWord(mode: Mode, thing: "closer" | "back" | "left" | "right" | "up" | "down"): string {
+  const who = mode === "phone" ? "phone" : "page";
+  if (thing === "closer") return `Move ${who} closer`;
+  if (thing === "back") return `Move ${who} back`;
+  return `Move ${who} ${thing}`;
+}
 
-  if (p.areaFrac > cfg.page.maxAreaFrac || (t.left && t.right) || (t.top && t.bottom)) {
-    return mode === "phone" ? "Move the phone further away." : "Move the page further away.";
+function framingPhrase(m: Metrics, cfg: Config, mode: Mode): { key: string; hint: string } {
+  const t = m.text;
+  const mirror = mode === "webcam" ? -1 : 1; // the webcam preview is mirrored
+  const side = (rightOfCentre: boolean) =>
+    mode === "phone" ? (rightOfCentre ? "right" : "left") : rightOfCentre ? "left" : "right";
+  const vert = (belowCentre: boolean) =>
+    mode === "phone" ? (belowCentre ? "down" : "up") : belowCentre ? "up" : "down";
+  const k = (name: string, thing: Parameters<typeof moveWord>[1]) => ({ key: name, hint: moveWord(mode, thing) });
+
+  if ((t.touches.left && t.touches.right) || (t.touches.top && t.touches.bottom) || t.widthFrac > cfg.framing.maxWidthFrac) {
+    return k("back", "back");
   }
-  // the page runs off one side, so the camera should move toward that side
-  if (t.left || t.right) {
-    const rightSide = t.right ? mirror > 0 : mirror < 0;
-    return `Page is cut off. Move ${who} ${sideWord(rightSide)}.`;
+  // text runs off one side: the camera should move toward that side
+  if (t.touches.left || t.touches.right) {
+    const rightSide = t.touches.right ? mirror > 0 : mirror < 0;
+    const w = side(rightSide);
+    return k(`cut-${w}`, w as "left" | "right");
   }
-  if (t.top || t.bottom) return `Page is cut off. Move ${who} ${vertWord(t.bottom)}.`;
-  if (p.areaFrac < cfg.page.minAreaFrac) return mode === "phone" ? "Move the phone closer." : "Move the page closer.";
-  if (Math.abs(p.centreDx) > cfg.page.maxCentreOffset) return `Move ${who} ${sideWord(dx > 0)}.`;
-  return `Move ${who} ${vertWord(p.centreDy > 0)}.`;
+  if (t.touches.top || t.touches.bottom) {
+    const w = vert(t.touches.bottom);
+    return k(`cut-${w}`, w as "up" | "down");
+  }
+  if (t.areaFrac < cfg.framing.minAreaFrac) return k("closer", "closer");
+  if (Math.abs(t.centreDx) > cfg.framing.maxCentreOffset) {
+    const w = side(t.centreDx * mirror > 0);
+    return k(`off-${w}`, w as "left" | "right");
+  }
+  const w = vert(t.centreDy > 0);
+  return k(`off-${w}`, w as "up" | "down");
 }
 
 export function evaluate(m: Metrics, cfg: Config, mode: Mode, stillForMs: number): Evaluation {
-  const p = m.page;
-  const t = p.touches;
-  const found = p.found;
+  const t = m.text;
+  const found = t.found;
 
   const tooDark = m.meanBrightness < cfg.light.minMeanBrightness;
   const tooBright = m.meanBrightness > cfg.light.maxMeanBrightness;
   const glare = m.glareFrac > cfg.light.maxGlareFrac;
-  const cut = t.left || t.right || t.top || t.bottom;
-  const centred = Math.abs(p.centreDx) <= cfg.page.maxCentreOffset && Math.abs(p.centreDy) <= cfg.page.maxCentreOffset;
-  const sizeOk = p.areaFrac >= cfg.page.minAreaFrac && p.areaFrac <= cfg.page.maxAreaFrac;
+  const cut = t.touches.left || t.touches.right || t.touches.top || t.touches.bottom;
+  const centred = Math.abs(t.centreDx) <= cfg.framing.maxCentreOffset && Math.abs(t.centreDy) <= cfg.framing.maxCentreOffset;
+  const sizeOk = t.areaFrac >= cfg.framing.minAreaFrac && t.widthFrac <= cfg.framing.maxWidthFrac;
 
   const passed: Record<CheckId, boolean> = {
-    page: found,
+    text: found,
     light: !tooDark && !tooBright && !glare,
     framing: found && !cut && centred && sizeOk,
-    tilt: found && Math.abs(p.tiltDeg) <= cfg.tilt.maxDegrees,
+    tilt: found && (!t.tiltReliable || Math.abs(t.tiltDeg) <= cfg.tilt.maxDegrees),
     sharp: m.sharpness >= cfg.sharpness.minLaplacianVariance,
     still: stillForMs >= cfg.stability.holdMs,
   };
   const failing = ORDER.filter((id) => !passed[id]);
 
-  let hint = HINTS.ok;
+  let key = "ready";
+  let hint = PHRASES.ready;
   const first = failing[0];
-  if (first === "page") hint = HINTS.noPage;
-  else if (first === "light") hint = tooDark ? HINTS.dark : tooBright ? HINTS.bright : HINTS.glare;
-  else if (first === "framing") hint = frameHint(m, cfg, mode);
-  else if (first === "tilt") hint = HINTS.straighten;
-  else if (first === "sharp") hint = HINTS.blurry;
-  else if (first === "still") hint = HINTS.still;
+  if (first === "text") ({ key, hint } = { key: "no-text", hint: PHRASES.noText });
+  else if (first === "light") ({ key, hint } = tooDark ? { key: "dark", hint: PHRASES.dark } : tooBright ? { key: "bright", hint: PHRASES.bright } : { key: "glare", hint: PHRASES.glare });
+  else if (first === "framing") ({ key, hint } = framingPhrase(m, cfg, mode));
+  else if (first === "tilt") ({ key, hint } = { key: "tilt", hint: PHRASES.straighten });
+  else if (first === "sharp" || first === "still") ({ key, hint } = { key: "steady", hint: PHRASES.steady });
 
   const score = (ORDER.length - failing.length) / ORDER.length;
   const status: Status = failing.length === 0 ? "green" : found && failing.length <= 2 && !failing.includes("light") ? "amber" : "red";
-  return { passed, failing, hint, status, score };
+  return { passed, failing, key, hint, status, score };
 }
 
 /** Label used next to the colour so status never relies on colour alone. */
