@@ -52,7 +52,7 @@ describe("live checks", () => {
   it("accepts a well framed, sharp, level page", () => {
     const { m, e } = run();
     expect(m.page.found).toBe(true);
-    expect(m.page.areaFrac).toBeGreaterThan(0.45);
+    expect(m.page.areaFrac).toBeGreaterThan(0.28);
     expect(e.failing).toEqual([]);
     expect(e.status).toBe("green");
   });
@@ -108,6 +108,14 @@ describe("live checks", () => {
     expect(blurred.m.sharpness).toBeLessThan(sharp.m.sharpness / 4);
     expect(blurred.e.failing).toContain("sharp");
     expect(blurred.e.hint).toMatch(/blurry/i);
+  });
+
+  it("gives a finite sharpness for any page size", () => {
+    for (const [pw, ph] of [[217, 173], [201, 199], [233, 167]]) {
+      const { m } = run({ pw, ph });
+      expect(Number.isFinite(m.sharpness)).toBe(true);
+      expect(m.sharpness).toBeGreaterThan(0);
+    }
   });
 
   it("detects a dark scene", () => {

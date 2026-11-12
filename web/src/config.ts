@@ -2,12 +2,12 @@
 export const CONFIG = {
   analysis: {
     fps: 8, // live checks per second (5 to 10)
-    width: 320, // analysis frame width in pixels; height follows the video aspect ratio
+    width: 640, // analysis frame width in pixels; height follows the video aspect ratio (sharpness is measured at this size)
   },
   page: {
-    minAreaFrac: 0.45, // page must fill at least this share of the frame
+    minAreaFrac: 0.28, // page must fill at least this share of the frame (a portrait page in a landscape frame tops out near 0.35)
     maxAreaFrac: 0.92, // above this the page is too close
-    foundAreaFrac: 0.08, // below this no page is reported at all
+    foundAreaFrac: 0.04, // below this no page is reported at all
     minSolidity: 0.75, // blob area / corner-quad area; low values mean "not a page-like shape"
     maxCentreOffset: 0.12, // allowed centre offset, as a share of frame width / height
     edgeMarginFrac: 0.015, // corners closer than this to the frame edge count as cut off
@@ -16,11 +16,11 @@ export const CONFIG = {
     maxDegrees: 6, // page angle beyond this triggers "straighten"
   },
   sharpness: {
-    minLaplacianVariance: 40, // variance of the Laplacian on the grey analysis frame
+    minLaplacianVariance: 100, // variance of the Laplacian on the grey analysis frame
   },
   light: {
     minMeanBrightness: 70, // 0..255, below this is "too dark"
-    maxMeanBrightness: 215, // above this is "too bright"
+    maxMeanBrightness: 235, // above this is "too bright"
     glareLevel: 250, // a pixel at or above this counts as blown out
     maxGlareFrac: 0.06, // share of blown-out pixels inside the page that triggers "reduce glare"
   },

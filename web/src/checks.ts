@@ -13,7 +13,7 @@ export interface Point {
 
 export interface PageInfo {
   found: boolean;
-  corners: Point[]; // TL, TR, BR, BL in analysis pixels
+  corners: Point[]; // TL, TR, BR, BL; at detection resolution inside detectPage, analysis-frame pixels from analyse
   areaFrac: number;
   solidity: number;
   centreDx: number; // -0.5..0.5, positive = page centre is right of frame centre
@@ -116,10 +116,10 @@ export interface Rect {
 /** Variance of the Laplacian, optionally limited to a region (so page edges do not hide blur). */
 export function laplacianVariance(g: Gray, region?: Rect): number {
   const { w, h, data } = g;
-  const x0 = Math.max(1, region?.x0 ?? 1);
-  const x1 = Math.min(w - 1, region?.x1 ?? w - 1);
-  const y0 = Math.max(1, region?.y0 ?? 1);
-  const y1 = Math.min(h - 1, region?.y1 ?? h - 1);
+  const x0 = Math.max(1, Math.round(region?.x0 ?? 1));
+  const x1 = Math.min(w - 1, Math.round(region?.x1 ?? w - 1));
+  const y0 = Math.max(1, Math.round(region?.y0 ?? 1));
+  const y1 = Math.min(h - 1, Math.round(region?.y1 ?? h - 1));
   let sum = 0;
   let sumSq = 0;
   let n = 0;
@@ -309,7 +309,8 @@ export interface Analysis {
 /** Runs every live check on one RGBA frame (already downscaled to the analysis size). */
 export function analyse(rgba: Uint8ClampedArray | Uint8Array, w: number, h: number, prevTiny: Gray | null, cfg: Config): Analysis {
   const gray = toGray(rgba, w, h);
-  const half = downscale(gray, 2);
+  const f = Math.max(1, Math.round(w / 160)); // page detection runs on a frame about 160 pixels wide
+  const half = downscale(gray, f);
   const { info, mask } = detectPage(half, cfg);
 
   let bright: number;
@@ -330,14 +331,15 @@ export function analyse(rgba: Uint8ClampedArray | Uint8Array, w: number, h: numb
   // measure sharpness on the middle of the page, where the text is
   let region: Rect | undefined;
   if (info.found) {
-    const xs = info.corners.map((c) => c.x * 2);
-    const ys = info.corners.map((c) => c.y * 2);
+    const xs = info.corners.map((c) => c.x * f);
+    const ys = info.corners.map((c) => c.y * f);
     const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
     const ix = (x1 - x0) * 0.2;
     const iy = (y1 - y0) * 0.2;
     region = { x0: x0 + ix, x1: x1 - ix, y0: y0 + iy, y1: y1 - iy };
   }
 
+  info.corners = info.corners.map((c) => ({ x: c.x * f, y: c.y * f })); // report corners in analysis-frame pixels
   const tiny = downscale(gray, Math.max(1, Math.floor(w / 40)));
   return {
     metrics: {
