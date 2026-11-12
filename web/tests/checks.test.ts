@@ -171,3 +171,53 @@ describe("speed and wording", () => {
     for (const p of phrases) expect(p.split(/\s+/).length).toBeLessThan(5);
   });
 });
+
+import { decideFromText, findPageNumber } from "../src/layout";
+
+describe("page layout decision", () => {
+  const text = (name: string) => run(load(name)).m.text;
+
+  it("splits an open book at the fold into left then right", () => {
+    for (const name of ["spread_flat", "spread_shadow", "spread_tilt", "spread_si"]) {
+      const d = decideFromText(text(name), 640, 480, 1, "book", "both");
+      expect(d.kind).toBe("spread");
+      expect(d.crops.map((c) => c.id)).toEqual(["left", "right"]);
+      expect(d.crops[0].box.x1).toBeLessThanOrEqual(d.crops[1].box.x0 + 1);
+    }
+  });
+
+  it("keeps the cut inside the empty gap, so no text is lost", () => {
+    const im = load("spread_shadow");
+    const g = toGray(im.rgba, im.w, im.h);
+    const d = decideFromText(text("spread_shadow"), im.w, im.h, 1, "book", "both");
+    const cut = Math.round((d.crops[0].box.x1 + d.crops[1].box.x0) / 2);
+    // no column at the cut carries text: at most a stray pixel or two per column
+    for (let x = cut - 2; x <= cut + 2; x++) {
+      let dark = 0;
+      for (let y = d.textBox!.y0; y < d.textBox!.y1; y++) if (g.data[y * g.w + x] < 90) dark++;
+      expect(dark).toBeLessThanOrEqual(3);
+    }
+  });
+
+  it("honours Left, Right and Both", () => {
+    const t = text("spread_shadow");
+    expect(decideFromText(t, 640, 480, 1, "book", "left").crops.map((c) => c.id)).toEqual(["left"]);
+    expect(decideFromText(t, 640, 480, 1, "book", "right").crops.map((c) => c.id)).toEqual(["right"]);
+  });
+
+  it("never splits in one-page mode, and explains when an open book has no fold", () => {
+    expect(decideFromText(text("spread_shadow"), 640, 480, 1, "single", "both").kind).toBe("single");
+    const d = decideFromText(text("single"), 640, 480, 1, "book", "both");
+    expect(d.kind).toBe("single");
+    expect(d.note).toMatch(/fold/i);
+  });
+});
+
+describe("page numbers", () => {
+  it("finds standalone and edge numbers, and ignores body text", () => {
+    expect(findPageNumber("Some title\nBody text here\n82")).toBe(82);
+    expect(findPageNumber("83 Healthy Food\nBody text that is long enough to be a paragraph line")).toBe(83);
+    expect(findPageNumber("Body line one\nBody line two with 2024 in the middle of it")).toBeNull();
+    expect(findPageNumber("")).toBeNull();
+  });
+});

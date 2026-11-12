@@ -1,6 +1,7 @@
 const KEY = "tabletop-reader-attempts-v1";
 
 export type Rating = "good_first_try" | "needed_help" | "";
+export type SplitMark = "right" | "wrong" | "";
 
 export interface Attempt {
   id: number;
@@ -17,6 +18,12 @@ export interface Attempt {
   ocrSeconds: number;
   chars: number;
   rating: Rating;
+  layoutSetting: string; // single (one page) or book (open book), as set by the person
+  decision: string; // single or spread, as decided from the photo
+  gutterFound: boolean;
+  gutterX: number; // photo pixels, 0 when none
+  pagesRead: string; // page, left, right or both
+  splitMark: SplitMark; // tester's verdict on the split
 }
 
 export function loadAttempts(): Attempt[] {
@@ -55,6 +62,7 @@ export function updateAttempt(id: number, patch: Partial<Attempt>): void {
 const COLUMNS: (keyof Attempt)[] = [
   "id", "time", "condition", "mode", "secondsToCapture", "hintCount", "hints", "capture",
   "ocrLangRequested", "ocrLangUsed", "ocrConfidence", "ocrSeconds", "chars", "rating",
+  "layoutSetting", "decision", "gutterFound", "gutterX", "pagesRead", "splitMark",
 ];
 
 export function toCsv(all: Attempt[]): string {

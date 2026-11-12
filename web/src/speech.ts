@@ -52,37 +52,54 @@ export function chunkText(text: string, max: number): string[] {
   return out;
 }
 
-/** Spoken guidance: the same hint is not repeated within a few seconds, and hints are spaced out. */
-export class Announcer {
+/**
+ * Spoken guidance. A phrase is spoken only when the state has changed since the last phrase,
+ * and never more than one phrase every few seconds. The latest state wins.
+ */
+export class Phraser {
   enabled = true;
   onSpoken: (text: string) => void = () => {};
-  private lastText = "";
-  private lastAt = 0;
-  private lastAnyAt = 0;
+  private spokenKey = "";
+  private lastAt = -Infinity;
+  voice: SpeechSynthesisVoice | undefined;
+  rate = 1;
+  pitch = 1;
 
-  hint(text: string): void {
-    if (!this.enabled) return;
+  /** Call on every check; speaks when the state changed and the gap has passed. */
+  update(key: string, text: string): void {
+    if (key === this.spokenKey) return;
     const now = performance.now();
-    if (text === this.lastText && now - this.lastAt < CONFIG.speech.repeatGapMs) return;
-    if (now - this.lastAnyAt < CONFIG.speech.minGapMs) return;
-    this.lastText = text;
-    this.lastAt = this.lastAnyAt = now;
-    this.speak(text);
-    this.onSpoken(text);
+    if (now - this.lastAt < CONFIG.speech.minGapMs) return;
+    this.spokenKey = key;
+    this.lastAt = now;
+    this.speak(text); // does nothing when the app voice is off
+    this.onSpoken(text); // always: the page shows the phrase for screen readers when the app voice is off
   }
 
-  /** Always spoken, interrupting any hint. */
+  /** Forget what was said, e.g. when the camera restarts. */
+  reset(): void {
+    this.spokenKey = "";
+    this.lastAt = performance.now(); // the announcement that triggered the reset has just been spoken
+  }
+
+  /** Interrupts any phrase. Used for state announcements. */
   say(text: string): void {
-    this.lastText = text;
-    this.lastAt = this.lastAnyAt = performance.now();
+    this.lastAt = performance.now();
     this.speak(text);
+  }
+
+  stop(): void {
+    if ("speechSynthesis" in window) speechSynthesis.cancel();
   }
 
   private speak(text: string): void {
-    if (!("speechSynthesis" in window)) return;
+    if (!this.enabled || !("speechSynthesis" in window)) return;
     speechSynthesis.cancel();
     const u = new SpeechSynthesisUtterance(text);
-    u.lang = "en";
+    if (this.voice) u.voice = this.voice;
+    u.lang = this.voice?.lang ?? "en";
+    u.rate = Math.min(1.6, this.rate + 0.1); // short phrases a little quicker
+    u.pitch = this.pitch;
     speechSynthesis.speak(u);
   }
 }
@@ -90,6 +107,7 @@ export class Announcer {
 export interface ReadOptions {
   voice?: SpeechSynthesisVoice;
   rate: number;
+  pitch: number;
   lang: Lang;
 }
 
@@ -102,13 +120,14 @@ export class BrowserReader {
     const my = ++this.token;
     const parts = chunkText(text, 180);
     if (!parts.length || !("speechSynthesis" in window)) return onEnd();
-    const next = (i: number) => {
+    const next = (i: number): void => {
       if (my !== this.token) return;
       if (i >= parts.length) return onEnd();
       const u = new SpeechSynthesisUtterance(parts[i]);
       if (o.voice) u.voice = o.voice;
       u.lang = o.voice?.lang ?? o.lang;
       u.rate = o.rate;
+      u.pitch = o.pitch;
       u.onend = () => next(i + 1);
       u.onerror = () => {
         if (my === this.token) onEnd();
@@ -132,7 +151,7 @@ export class OnlineReader {
   private token = 0;
   private audio: HTMLAudioElement | null = null;
 
-  async speak(text: string, lang: Lang, rate: number, onEnd: (error?: string) => void): Promise<void> {
+  async speak(text: string, lang: Lang, voice: string, rate: number, onEnd: (error?: string) => void): Promise<void> {
     this.stop();
     const my = ++this.token;
     const parts = chunkText(text, 250);
@@ -141,7 +160,7 @@ export class OnlineReader {
         const r = await fetch("/api/tts", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text: part, lang }),
+          body: JSON.stringify({ text: part, lang, voice }),
         });
         if (!r.ok) throw new Error((await r.json().catch(() => ({ error: `HTTP ${r.status}` }))).error);
         const url = URL.createObjectURL(await r.blob());
@@ -166,5 +185,71 @@ export class OnlineReader {
     this.token++;
     this.audio?.pause();
     this.audio = null;
+  }
+}
+
+/** Sample sentence for previewing a voice. */
+export const SAMPLE: Record<Lang, string> = {
+  en: "This is how this voice sounds.",
+  si: "මෙය මෙම හඬේ නියැදියකි.",
+};
+
+export function previewVoice(voice: SpeechSynthesisVoice | undefined, lang: Lang, rate: number, pitch: number): void {
+  if (!("speechSynthesis" in window)) return;
+  speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(SAMPLE[lang]);
+  if (voice) u.voice = voice;
+  u.lang = voice?.lang ?? lang;
+  u.rate = rate;
+  u.pitch = pitch;
+  speechSynthesis.speak(u);
+}
+
+export interface ReadItem {
+  text: string;
+  lang: Lang;
+  label?: boolean; // short announcement such as "Left page", spoken with the English voice
+}
+
+export interface Narration {
+  voices: Record<Lang, SpeechSynthesisVoice | undefined>;
+  rate: number;
+  pitch: number;
+  online: { enabled: boolean; voice: string }; // used only for Sinhala without a device voice, and only when the person asked for it
+}
+
+/** Reads a list of items in order: labels, then text, using device voices or, on request, the online voice. */
+export class Narrator {
+  private token = 0;
+  private browser = new BrowserReader();
+  private online = new OnlineReader();
+
+  play(items: ReadItem[], n: Narration, onItem: (i: number) => void, onEnd: (error?: string) => void): void {
+    this.stop();
+    const my = ++this.token;
+    const next = (i: number): void => {
+      if (my !== this.token) return;
+      if (i >= items.length) return onEnd();
+      const it = items[i];
+      onItem(i);
+      const done = (err?: string): void => (err ? onEnd(err) : next(i + 1));
+      if (!it.text.trim()) return done();
+      const lang: Lang = it.label ? "en" : it.lang;
+      const voice = n.voices[lang];
+      if (voice || (lang === "en" && !n.online.enabled)) {
+        this.browser.speak(it.text, { voice, rate: n.rate, pitch: n.pitch, lang }, () => done());
+      } else if (lang === "si" && n.online.enabled) {
+        void this.online.speak(it.text, "si", n.online.voice, n.rate, (e) => done(e));
+      } else {
+        done(`No ${lang === "si" ? "Sinhala" : "English"} voice is available.`);
+      }
+    };
+    next(0);
+  }
+
+  stop(): void {
+    this.token++;
+    this.browser.stop();
+    this.online.stop();
   }
 }

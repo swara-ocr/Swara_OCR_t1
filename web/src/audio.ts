@@ -9,13 +9,13 @@ export function unlockAudio(): void {
   if (ctx.state === "suspended") void ctx.resume();
 }
 
-function tone(freq: number, ms: number, volume: number, type: OscillatorType = "sine") {
+function tone(freq: number, ms: number, volume: number, type: OscillatorType = "sine", delayMs = 0) {
   if (!ctx) return;
   const osc = ctx.createOscillator();
   const gain = ctx.createGain();
   osc.type = type;
   osc.frequency.value = freq;
-  const t = ctx.currentTime;
+  const t = ctx.currentTime + delayMs / 1000;
   gain.gain.setValueAtTime(0.0001, t);
   gain.gain.exponentialRampToValueAtTime(volume, t + 0.01);
   gain.gain.exponentialRampToValueAtTime(0.0001, t + ms / 1000);
@@ -24,18 +24,20 @@ function tone(freq: number, ms: number, volume: number, type: OscillatorType = "
   osc.stop(t + ms / 1000 + 0.02);
 }
 
-/** Soft beep whose gap shrinks as the framing improves. */
-export class BeepLoop {
+/** A short tone at a steady rhythm whose pitch rises as the framing improves. */
+export class ToneGuide {
+  enabled = true;
   private timer: number | undefined;
   private score = 0;
-  enabled = true;
 
   start(): void {
     this.stop();
     const tick = () => {
-      if (this.enabled) tone(CONFIG.beep.frequency + this.score * 220, 70, CONFIG.beep.volume);
-      const gap = CONFIG.beep.slowMs - (CONFIG.beep.slowMs - CONFIG.beep.fastMs) * this.score;
-      this.timer = window.setTimeout(tick, gap);
+      if (this.enabled) {
+        const hz = CONFIG.tones.minHz + this.score * (CONFIG.tones.maxHz - CONFIG.tones.minHz);
+        tone(hz, 80, CONFIG.tones.volume);
+      }
+      this.timer = window.setTimeout(tick, CONFIG.tones.intervalMs);
     };
     tick();
   }
@@ -48,6 +50,12 @@ export class BeepLoop {
     if (this.timer !== undefined) window.clearTimeout(this.timer);
     this.timer = undefined;
   }
+}
+
+/** Two quick rising tones: everything is right, hold still. */
+export function readyChime(): void {
+  tone(700, 90, 0.12);
+  tone(1000, 120, 0.12, "sine", 110);
 }
 
 /** Short camera-shutter click. */
@@ -64,4 +72,16 @@ export function shutterSound(): void {
   src.connect(gain).connect(ctx.destination);
   src.start();
   tone(1200, 50, 0.12, "square");
+}
+
+/** Three falling tones: something went wrong. */
+export function errorTone(): void {
+  tone(500, 120, 0.12);
+  tone(380, 120, 0.12, "sine", 140);
+  tone(280, 200, 0.12, "sine", 280);
+}
+
+/** Vibration where the device supports it (most Android phones; not iPhone). */
+export function buzz(pattern: number[], enabled: boolean): void {
+  if (enabled && "vibrate" in navigator) navigator.vibrate(pattern);
 }
