@@ -89,7 +89,7 @@ export function evaluate(m: Metrics, cfg: Config, mode: Mode, stillForMs: number
   let key = "ready";
   let hint = PHRASES.ready;
   const first = failing[0];
-  if (first === "text") ({ key, hint } = { key: "no-text", hint: PHRASES.noText });
+  if (first === "text") ({ key, hint } = m.meanBrightness < cfg.light.veryDarkMean ? { key: "dark", hint: PHRASES.dark } : { key: "no-text", hint: PHRASES.noText });
   else if (first === "light") ({ key, hint } = tooDark ? { key: "dark", hint: PHRASES.dark } : tooBright ? { key: "bright", hint: PHRASES.bright } : { key: "glare", hint: PHRASES.glare });
   else if (first === "framing") ({ key, hint } = framingPhrase(m, cfg, mode));
   else if (first === "tilt") ({ key, hint } = { key: "tilt", hint: PHRASES.straighten });

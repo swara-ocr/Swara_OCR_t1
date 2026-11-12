@@ -669,6 +669,7 @@ bindSettings();
 updateLogCount();
 void refreshVoices();
 setState("idle");
+focusPrimary();
 if (!navigator.mediaDevices?.getUserMedia) {
   el.primary.setAttribute("aria-disabled", "true");
   el.announce.textContent = "This browser cannot use the camera. Use a recent Chrome, Edge, Safari or Firefox over HTTPS.";

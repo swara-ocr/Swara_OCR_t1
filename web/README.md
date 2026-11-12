@@ -1,141 +1,157 @@
 # TableTop Reader (web)
 
-A browser app for reading printed pages aloud, in English and Sinhala. It guides the user to frame the page, checks that the image is clear, takes the photo automatically, reads the text and speaks it. Every instruction is spoken as well as shown.
+A browser app for reading printed pages and open books aloud, in English and Sinhala. It is built for blind and low-vision users: it guides the person to frame the page, checks that the image is clear, takes the photo automatically, reads the text and speaks it. Every state is spoken and also written to a live region for screen readers.
 
-Everything runs in the browser. There are no per-frame server calls, no analytics and no API keys. The photo and the text never leave the device.
-
-The only exception is the optional online Sinhala voice (see below), which is off by default and sends text to an online speech service when the person presses its button.
+Everything runs in the browser. There are no per-frame server calls, no analytics and no API keys. The photo and the text never leave the device. The only exception is the optional online voice (see "Online voice"), which is off by default.
 
 ## Run it
 
 ```bash
 cd web
 npm install
-npm run dev        # http://localhost:5173 (camera works on localhost)
+npm run dev        # http://localhost:5173 (the camera works on localhost)
 npm run build      # type-checks, then writes dist/
 npm run preview    # serves dist/ on http://localhost:4173
-npm test           # unit tests for the image checks and the guidance wording
+npm test           # unit tests for the checks, book splitting and wording
 ```
 
-`npm run dev` and `npm run build` first copy the Tesseract.js worker and WASM core from `node_modules` into `public/tesseract/` (generated, not committed). The English and Sinhala models are in `public/tessdata/` (the `tessdata_fast` files, about 5.8 MB in total), so OCR works without any third-party download.
+`npm run dev` and `npm run build` first copy the Tesseract.js worker and WASM core from `node_modules` into `public/tesseract/` (generated, not committed). The English and Sinhala models are in `public/tessdata/` (`tessdata_fast`, about 5.6 MB), so OCR works without any third-party download.
 
-Add `?debug=1` to the URL to see the live numbers (sharpness, brightness, glare, motion, page area, tilt, offset and which checks fail) under the camera. Use it when tuning.
+## Two modes
 
-## What happens on screen
+**User mode** (the default) is what a blind person sees: one very large button, a short line of text announcing the current state, no numbers, and a collapsed Settings section.
 
-1. Start screen: a large **Start camera** button and a few options (text language, spoken instructions, beep, test condition).
-2. Camera: the rear camera is used by default (any camera can be chosen). A coloured frame (red, amber, green) plus a word (Adjust, Almost, Ready) and a short hint are shown and spoken.
-3. When every check has passed for 1 second the photo is taken from the full-resolution stream, a shutter sound plays and it says "Photo taken". The **Take photo** button and the space bar take a photo manually.
-4. The photo is read with Tesseract.js ("Reading" is spoken, progress is shown).
-5. The text appears in a large high-contrast box with **Copy**, **Restore original text**, voice and speed controls, and **Read aloud**.
-
-## The live checks
-
-Run about 8 times a second on a 640-pixel-wide copy of the frame, in plain canvas code (no OpenCV). See `src/checks.ts` and `src/guidance.ts`.
-
-| Check | How | Spoken hint |
+| State | Big button says | What happens |
 |---|---|---|
-| Page found | blur, Otsu threshold, largest light region, its four extreme corners | "I cannot see the page" |
-| Framing | page area, centre offset, corners near the frame edge | "Move the phone closer / further away / left / right / up / down", "Page is cut off" |
-| Tilt | angle of the top and bottom page edges | "Straighten the page" |
-| Sharpness | variance of the Laplacian over the middle of the page | "Too blurry. Hold still" |
-| Lighting | mean brightness of the page, share of blown-out pixels | "Too dark", "Too bright", "Reduce glare" |
-| Stability | mean difference between consecutive tiny frames over 1 second | "Hold still" |
+| Start | Start reading | first time only: a short spoken introduction, skippable by pressing the button or Escape |
+| Camera | Take photo now | tones and short phrases guide the framing; the photo is taken automatically, or by the button or space bar |
+| Reading | Reading. Please wait. | each page is read in turn |
+| Result | Read aloud / Stop reading | the text is read aloud, page by page |
 
-Hints are spoken in priority order (page, light, framing, tilt, sharpness, stillness). The same hint is not repeated within 3 seconds. A soft beep gets faster as more checks pass.
+Focus moves to the big button at every change, labels are real `<label>`s and headings, the camera preview is hidden from assistive technology, and the page works with TalkBack and VoiceOver. If you use a screen reader, turn off "Speak instructions with the app voice" in Settings so the two do not talk over each other; guidance then goes to the live region only. Vibration patterns are used where the device supports them (most Android phones, not iPhone).
 
-On a phone the hints talk about moving the phone. On a laptop webcam the preview is mirrored and the hints talk about moving the page.
+**Test mode** is `?debug=1`. It adds the live numbers under the camera (sharpness, brightness, glare, motion, text area, tilt, offset, fold, and which checks fail), the test-condition selector, a preview of the photo with the split drawn on it, buttons to mark the split and the attempt, and the CSV download.
 
-## Tuning the thresholds
+## Finding the text
 
-Every threshold is in one object at the top of `src/config.ts`.
+The old corner-based page detection was replaced because it could not handle open books. Now (`src/checks.ts`):
 
-| Setting | Default | Meaning |
+1. A **paper mask**: light pixels (Otsu threshold) with the text holes filled, table and background left out, edge pulled in a little.
+2. **Ink** inside the paper: an adaptive threshold (pixels clearly darker than their local average).
+3. **Morphology**: dilation joins letters into words and lines into blocks.
+4. The **text block** is found from row and column profiles of the joined ink. It is checked against the frame: big enough, centred, margins, and not running into an edge (cut off).
+5. **Tilt** is the angle at which the text lines pile up into the sharpest horizontal bands (a projection-profile search, about ±15 degrees).
+6. Sharpness (variance of the Laplacian), lighting, glare and stability are measured on the text block, so the page edge and the table do not distort them.
+
+Guidance is spoken only when the state changes, at most one phrase every 3 seconds, and every phrase is under five words ("Move phone left", "Straighten the page", "Hold steady", "Too dark", "Reduce glare", "Find the page"). A short tone repeats and its pitch rises as more checks pass. Two quick rising tones mean everything is right. Hints say "phone" when the rear camera is used, and "page" with a mirrored preview on a laptop webcam.
+
+## Open books
+
+In Settings choose **One page** or **Open book, two pages** (remembered), and for a book **Both** (default), **Left** or **Right**.
+
+In open-book mode the photo is analysed again at capture time:
+
+- The **fold** is a wide empty vertical band near the middle of the text block, and/or a dark vertical valley (the shadow in the fold). Either alone is accepted; both agreeing is more confident. The block must be wider than tall, so a portrait single page is never split.
+- If a fold is found the photo is cut inside the empty gap into a left and a right crop. Each crop is read separately, left then right, and the app says "Left page" and "Right page", or "Page 82" if OCR finds a page number on that page.
+- If no fold is found it says "Could not find the fold. Reading as one page." and reads the text block as one page.
+- With Auto language, the first page decides the language for the second.
+
+In test mode the split is drawn on the photo (green left crop, red right crop, yellow fold) and **Split was right / Split was wrong** record your verdict.
+
+## Voices
+
+- Speech uses the browser's `speechSynthesis`. Settings lists **every** voice the device has for English and for Sinhala, with a Preview button each, plus speed and pitch sliders. If only one voice exists it says so; if none exists it says so and the text stays on screen. The chosen voices are remembered.
+- Spoken labels such as "Left page" use the English voice.
+
+### Online voice (optional, off by default)
+
+If the device has no Sinhala voice, a **Read with online voice** button can appear. It is never used automatically: the text is sent only when the person presses it, in pieces of at most 300 characters, and nothing is stored or cached.
+
+`api/tts.ts` is a small Vercel function with two possible routes:
+
+| Route | Turned on by | Notes |
 |---|---|---|
-| `analysis.fps` | 8 | checks per second |
-| `page.minAreaFrac` / `maxAreaFrac` | 0.28 / 0.92 | page must fill this share of the frame (a portrait page in a landscape frame tops out near 0.35) |
-| `page.maxCentreOffset` | 0.12 | allowed offset of the page centre, as a share of the frame |
-| `page.edgeMarginFrac` | 0.015 | corners this close to the edge count as cut off |
-| `tilt.maxDegrees` | 6 | beyond this: "Straighten the page" |
-| `sharpness.minLaplacianVariance` | 100 | below this: "Too blurry" (a sharp test page scored about 4000, a heavily blurred one about 7) |
-| `light.minMeanBrightness` / `maxMeanBrightness` | 70 / 235 | too dark / too bright |
-| `light.maxGlareFrac` | 0.06 | share of pixels at 250 or more inside the page |
-| `stability.maxMeanDiff` / `holdMs` | 3.0 / 1000 | how still the picture must be, and for how long |
-| `capture.autoHoldMs` | 1000 | all checks must pass this long before auto-capture |
-| `speech.repeatGapMs` / `minGapMs` | 3000 / 1500 | repeat spacing for one hint / spacing between any two hints |
-| `ocr.maxSide` | 2000 | long side of the photo sent to OCR |
+| Azure Speech (si-LK Thilini and Sameera) | `AZURE_SPEECH_ENABLED=1`, `AZURE_SPEECH_KEY`, `AZURE_SPEECH_REGION` | official, uses your own Azure resource |
+| Microsoft Edge read-aloud, then Google Translate speech | `TTS_FALLBACK=1` | **unofficial**: not a public API with a service agreement, can change or block requests without notice, and may go against the providers' terms of use. Fine for testing, unreliable for production. |
 
-The defaults were set on synthetic frames and on a fake camera playing test scenes. Real cameras add noise, so expect to adjust sharpness, brightness and stability. Use `?debug=1` and the test checklist below.
-
-## Language and speech
-
-- OCR language: English, Sinhala or Auto. Auto reads with both and keeps the more confident result, so it takes about twice as long.
-- Speech uses the browser's `speechSynthesis` by default. The voice list is filtered to the text's language, and there is a speed slider.
-- If the device has no Sinhala voice, the page says so and offers text only. Many desktop browsers have no Sinhala voice, so test on the real phone.
-- Spoken instructions are in English. The strings are in `src/guidance.ts` if you want to translate them.
-
-### Optional online Sinhala voice (unofficial)
-
-This follows the Streamlit app in `app/`, which uses Microsoft Edge TTS (`si-LK-SameeraNeural`) with Google TTS as the second option. `api/tts.ts` is a small Vercel function that tries the Edge voice first and Google second, and returns MP3.
-
-It is **off by default**. To turn it on:
-
-- on the server, set the environment variable `TTS_FALLBACK=1` (Vercel project settings), and
-- at build time, set `VITE_TTS_FALLBACK=1`.
+With none of these set the function answers 404 and nothing is sent anywhere. The button only appears if the site was also built with `VITE_TTS_FALLBACK=1`. Azure is tried first when it is configured. Speed applies to online audio; pitch does not.
 
 For local testing: `VITE_TTS_FALLBACK=1 TTS_FALLBACK=1 npm run dev`.
 
-When on, and only if the browser has no Sinhala voice, an extra button appears. The text is sent to the online service only when the person presses it, in pieces of at most 300 characters, and nothing is stored.
+**Enabling Azure Speech (optional)**
 
-**Risk:** both routes are unofficial. They are not public APIs with a service agreement, they can change or block requests without notice, and using them may go against the providers' terms of use. They are fine for testing and unreliable for production. For a real release, use a licensed speech service or a Sinhala voice installed on the device.
+1. In the Azure portal create a **Speech** resource and open **Keys and Endpoint**. Note one key and the region (for example `southeastasia`).
+2. In Vercel open the project, then **Settings > Environment Variables**, and add `AZURE_SPEECH_ENABLED=1`, `AZURE_SPEECH_KEY` and `AZURE_SPEECH_REGION`. Add `VITE_TTS_FALLBACK=1` so the button shows. Do not give the key a `VITE_` prefix: it must stay on the server.
+3. Redeploy (the `VITE_` variable only applies to a new build). In Settings the "Online Sinhala voice" choice then lets you pick Sameera or Thilini.
+4. Check what it costs before you use it. Azure may offer a limited free tier and charges beyond it, and I did not verify the current limits or prices. Set a spending alert in Azure. Nothing here is enabled, and nothing costs money, unless you set these variables. Never put the key in the repository.
 
-## Deploy on Vercel
+## Tuning the thresholds
 
-1. Push the repository to GitHub.
-2. In Vercel choose **Add New Project** and import the repository.
-3. Set **Root Directory** to `web`.
-4. Framework preset: **Vite** (build command `npm run build`, output `dist`).
-5. No environment variables are needed for the base app. Deploy.
+Everything is in one object at the top of `src/config.ts`. The main ones:
 
-Vercel serves the site over HTTPS, which the camera needs. Add the two variables above only if you want to try the online Sinhala voice.
+| Setting | Default | Meaning |
+|---|---|---|
+| `analysis.fps` / `width` | 8 / 640 | checks per second, and the width the frame is analysed at |
+| `text.windowRadius`, `text.contrast` | 8, 12 | adaptive threshold: window and how much darker than average counts as ink |
+| `text.joinX`, `text.joinY` | 5, 1 | morphology: how far letters and lines are joined |
+| `text.cutShare` | 0.2 | text counts as cut off when this share of lines reach the frame edge |
+| `framing.minAreaFrac` / `maxWidthFrac` | 0.25 / 0.97 | text block must fill this share of the frame, and not be wider than this |
+| `framing.maxCentreOffset` | 0.12 | allowed offset of the text block from the centre |
+| `tilt.maxDegrees` | 5 | beyond this: "Straighten the page" |
+| `gutter.minAspect` | 1.05 | text block width / height needed before a fold is looked for |
+| `gutter.emptyFrac`, `gutter.minBandFrac` | 0.25, 0.02 | how empty and how wide the gap must be |
+| `gutter.shadowDepth` | 0.07 | how much darker than both sides the fold shadow must be |
+| `sharpness.minLaplacianVariance` | 100 | below this: "Hold steady" (a sharp test page scored about 2000 to 4000, a heavily blurred one about 7) |
+| `light.minMeanBrightness` / `maxMeanBrightness` / `maxGlareFrac` | 70 / 235 / 0.06 | too dark, too bright, share of blown-out pixels |
+| `stability.maxMeanDiff` / `holdMs` | 3.0 / 1000 | how still the picture must be, for how long |
+| `capture.autoHoldMs` | 1000 | all checks must pass this long before auto-capture |
+| `speech.minGapMs` | 3000 | at most one guidance phrase this often |
+| `tones.*`, `vibration.*` | | tone pitch range and interval, vibration patterns |
+
+The defaults were set on test frames and a fake camera, not on real phones. Expect to adjust sharpness, brightness, `text.contrast` and the fold settings. Use `?debug=1` while tuning.
 
 ## Test log
 
-Every captured attempt is stored in the browser's `localStorage`: time, test condition, camera mode (phone or webcam), seconds from start to capture, number and text of hints spoken, auto or manual capture, OCR language requested and used, OCR confidence and time, characters returned, and a rating. After each attempt press **Good first try** or **Needed help**. **Download log (CSV)** saves everything. The log stays on the device, and clearing the browser's site data deletes it, so download it after each session.
+Every captured attempt is stored in the browser's `localStorage` and downloaded with **Download log (CSV)** in test mode. Columns: time, test condition, camera mode, seconds to capture, number and text of hints spoken, auto or manual capture, OCR language requested and used, OCR confidence and time, characters, rating, **layout setting** (one page or open book), **decision** (single or spread), **fold found** and its position, **which page was read** (page, left, right or both), and **your split verdict** (right, wrong or empty). The log stays on the device, and clearing the site data deletes it, so download it after each session.
 
 ### Test checklist
 
-Do 10 attempts in each condition: **bright light, dim light, tilted page, glare**. Choose the condition on the start screen before each attempt, use a different printed page now and then, and do not coach the person. Count an attempt as a good first try if the photo was taken without anyone stepping in and the text was usable.
+Do 10 attempts in each condition, choosing it in Settings (test mode) before each attempt: **bright light, dim light, tilted page, glare, open book**. Do not coach the person. An attempt is a good first try if the photo was taken without anyone stepping in and the text was usable.
 
-For each condition note:
+For each condition note: first-try success rate, median and range of seconds to capture, hints per attempt and which came up most, auto against manual capture, OCR confidence and readability, and anything the hints got wrong.
 
-- first-try success rate (good first tries out of 10)
-- median and range of seconds to capture
-- number of spoken hints per attempt, and which hints came up most
-- auto against manual capture
-- OCR confidence and whether the text was readable (read it against the page)
-- anything the hints got wrong (for example, "Too blurry" on a sharp page, or an unreachable "Ready")
-
-If a check fails too often or never fires, change the matching threshold, reload, and note the value you used.
+For the **open book** condition also note, for each attempt: did it find the fold (single or spread as expected), was the split right (use the buttons), was each page read in the right order with the right label, and was any text lost at the cut. Try thick books, thin books, books that do not lie flat, text close to the fold, a pictures-only page, and a book on a white table.
 
 ## Tested and not tested
 
 Tested:
 
-- Unit tests (`npm test`) of every check and hint on synthetic frames: framing, off-centre, cut off, tilt, blur, dark, glare and stability.
-- Headless Chrome with a fake camera playing scenes made from the test pages: auto-capture of a well-framed page in under 3 seconds, English, Sinhala and Auto OCR in the browser using the self-hosted worker and models, and hints for a small, tilted, blurred, dark and off-centre page.
-- The no-Sinhala-voice message, the text-only mode, the CSV log, the rating buttons and the optional online voice (flag off and on).
+- Unit tests (`npm test`, 22 tests) on real textbook pages and synthetic open books: text found, framing, off-centre, cut off, tilt, blur, darkness, glare, stability, the fold in four spreads (flat, shadowed and curled, rotated, Sinhala), no fold on single pages, cuts inside the gap, Left/Right/Both, page numbers, and phrases under five words.
+- Headless Chrome with a fake camera playing full-size scenes: single page, open book (English and Sinhala), open-book setting with a single page, Left only, the introduction and its skip, state changes and focus, and hints for small, tilted, blurred, dark and off-centre pages. In the English open book both pages were read separately in order; the Sinhala spread found a page number.
+- The online voice function: off by default (404), capabilities check, Sameera and Thilini, and the Azure route being tried first and failing cleanly with a fake key.
 
 Not tested:
 
-- The phone rear camera, real phone orientation, autofocus and exposure behaviour.
-- A real laptop webcam (only a fake camera was used).
-- Real speech voices, including whether a Sinhala voice exists on target phones, and spoken-hint timing with a screen reader.
-- Safari and Firefox.
-- The deployed Vercel build.
-- Real glare on glossy paper (glare was only tested with synthetic highlights).
+- **Real open-book photos.** The spreads are synthetic (two pages side by side with a fold shadow, text squeezed towards the fold, and a slight rotation). Real books have curved lines of text, perspective, hands, uneven light and thick page edges.
+- The phone rear camera, autofocus, exposure, vibration, and a real laptop webcam.
+- Real speech voices: whether target phones have a Sinhala voice, and whether the voice preview and the Sinhala sample sentence sound right.
+- TalkBack and VoiceOver with the app (the markup follows the usual rules, but I have not used a screen reader on it).
+- Safari and Firefox, the deployed Vercel build, and Azure Speech with a real key.
 
-## Design notes
+## Still weak
 
-- Page detection is hand-written canvas code (threshold plus largest region) instead of OpenCV.js, which keeps the app small and fast. It expects a light page on a darker background and a roughly rectangular page. A dark page on a light table is not handled.
-- `tessdata_fast` models are used for speed in the browser. The Streamlit app uses `tessdata_best`; accuracy in the browser has not been compared.
+- Fold detection is the weakest part. It works on synthetic books but may fail on real ones (a tight gutter with no gap, a page full of pictures, text that curves into the fold). When it fails the app reads the book as one page and says so.
+- A two-column single page can look like a spread in open-book mode, so use "One page" for those.
+- The text block assumes light paper on a darker background. Dark paper, glossy pages and a white table (which hides the page edge) may confuse it. Handwriting is not supported.
+- Reading quality: OCR on a skewed or curved page is worse than on a flat one, and the in-browser models are the smaller `tessdata_fast`.
+- Sinhala voices depend on the device. Without one, the choices are text on screen or the unofficial online voice.
+- Spoken instructions are English only (`src/guidance.ts` holds the phrases).
+
+## Deploy on Vercel
+
+1. Put the repository on GitHub (Vercel needs a Pro plan for private repositories owned by an organisation, so use a personal account or a public repository).
+2. In Vercel choose **Add New Project** and import it.
+3. Set **Root Directory** to `web`. Framework preset **Vite** (build `npm run build`, output `dist`).
+4. No environment variables are needed for the base app. Deploy.
+
+Vercel serves the site over HTTPS, which the camera needs. Add the optional online-voice variables only if you want them.

@@ -46,6 +46,7 @@ export const CONFIG = {
   },
   light: {
     minMeanBrightness: 70, // 0..255, below this is "too dark"
+    veryDarkMean: 30, // when no text is found and the whole frame is darker than this, say "too dark" instead of "find the page"
     maxMeanBrightness: 235, // above this is "too bright"
     glareLevel: 250, // a pixel at or above this counts as blown out
     maxGlareFrac: 0.06, // share of blown-out pixels in the text block that triggers "reduce glare"

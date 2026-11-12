@@ -77,6 +77,10 @@ describe("single page", () => {
     expect(e.status).toBe("red");
   });
 
+  it("says too dark, not find the page, when the whole frame is nearly black", () => {
+    expect(run(darken(load("single"), 0.1)).e.hint).toBe(PHRASES.dark);
+  });
+
   it("says the text is cut off when it runs past the edges", () => {
     const { m, e } = run(load("single_cut"));
     expect(m.text.touches.left && m.text.touches.right).toBe(true);
