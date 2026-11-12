@@ -1,1 +1,23 @@
-/.env
+# secrets
+.env
+.env.*
+!.env.example
+
+# environments and caches
+.venv/
+venv/
+__pycache__/
+*.pyc
+node_modules/
+.vercel/
+
+# editor and tool folders
+.claude/
+.vscode/
+.DS_Store
+
+# local only: duplicate photos, personal receipt, generated output
+img/
+benchmark/testset/en_bill_01.*
+tts_samples/
+*.mp3
