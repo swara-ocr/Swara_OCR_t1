@@ -21,3 +21,7 @@ img/
 benchmark/testset/en_bill_01.*
 tts_samples/
 *.mp3
+
+# web app: generated or build output
+web/dist/
+web/public/tesseract/

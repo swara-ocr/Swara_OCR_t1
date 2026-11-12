@@ -1,0 +1,25 @@
+{
+  "name": "tabletop-reader-web",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "copy-assets": "node scripts/copy-assets.mjs",
+    "predev": "npm run copy-assets",
+    "dev": "vite",
+    "prebuild": "npm run copy-assets",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "msedge-tts": "^2.1.1",
+    "tesseract.js": "^7.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.8",
+    "vitest": "^5.1.0"
+  }
+}
